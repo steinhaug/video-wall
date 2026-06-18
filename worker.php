@@ -125,8 +125,9 @@ function download_audio(string $url, string $videoId, string $audioDir): string
 
     global $yt_dlp_bin;
     $cmd = sprintf(
-        '%s -x --audio-format m4a --no-playlist -o %s %s 2>&1',
+        '%s%s -x --audio-format m4a --no-playlist -o %s %s 2>&1',
         escapeshellarg($yt_dlp_bin),
+        yt_dlp_cookies_flag(),
         escapeshellarg($output),
         escapeshellarg($url)
     );
@@ -148,8 +149,8 @@ function fetch_title(string $url): ?string
     global $yt_dlp_bin;
     // Suppress stderr (warnings) to nul/null so they can't contaminate the title.
     $nul = stripos(PHP_OS, 'WIN') === 0 ? 'NUL' : '/dev/null';
-    $cmd = sprintf('%s --no-playlist --print title --skip-download %s 2>%s',
-        escapeshellarg($yt_dlp_bin), escapeshellarg($url), $nul);
+    $cmd = sprintf('%s%s --no-playlist --print title --skip-download %s 2>%s',
+        escapeshellarg($yt_dlp_bin), yt_dlp_cookies_flag(), escapeshellarg($url), $nul);
     exec($cmd, $lines, $exit);
     if ($exit !== 0) {
         return null;
@@ -167,4 +168,26 @@ function fetch_title(string $url): ?string
 function log_line(string $msg): void
 {
     echo '[' . date('H:i:s') . '] ' . $msg . PHP_EOL;
+}
+
+/**
+ * Returns yt-dlp auth/runtime flags (with leading space) for cookies and JS runtime.
+ * When cookies are enabled, YouTube triggers a JS-based n-challenge that requires
+ * a runtime to solve, so the two flags travel together.
+ */
+function yt_dlp_cookies_flag(): string
+{
+    global $yt_dlp_browser, $yt_dlp_browser_profile, $yt_dlp_js_runtime;
+    if (empty($yt_dlp_browser)) {
+        return '';
+    }
+    $spec = $yt_dlp_browser;
+    if (!empty($yt_dlp_browser_profile)) {
+        $spec .= ':' . $yt_dlp_browser_profile;
+    }
+    $flags = ' --cookies-from-browser ' . escapeshellarg($spec);
+    if (!empty($yt_dlp_js_runtime)) {
+        $flags .= ' --js-runtimes ' . escapeshellarg($yt_dlp_js_runtime);
+    }
+    return $flags;
 }
