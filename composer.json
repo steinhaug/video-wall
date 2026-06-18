@@ -1,0 +1,20 @@
+{
+    "name": "steinhaug/video-wall",
+    "description": "youtube transcribed video-wall project",
+    "type": "library",
+    "license": "mit",
+    "autoload": {
+        "psr-4": {
+            "Steinhaug\\VideoWall\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Kim Steinhaug",
+            "email": "kim@steinhaug.com"
+        }
+    ],
+    "require": {
+        "steinhaug/mysqli": "^1.9"
+    }
+}
