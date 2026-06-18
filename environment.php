@@ -8,6 +8,7 @@ if(!defined('STORAGE_PATH')) define('STORAGE_PATH', ABS_PATH . '/storage');
 require ABS_PATH . '/credentials.php';
 require ABS_PATH . '/vendor/autoload.php';
 require APPDATA_PATH . '/classes/AssemblyAI.php';
+require APPDATA_PATH . '/classes/VideoRepo.php';
 
 // Initiate the DB connection 
 Mysqli2::isDev(true);

@@ -2,3 +2,5 @@ credentials.php
 /logs/
 /vendor/
 composer.lock
+/storage/
+/.claude/
