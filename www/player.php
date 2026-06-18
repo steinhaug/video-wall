@@ -43,21 +43,10 @@ if (!is_file($mp4Path)) {
     // Output as literal .mp4 (avoids %(ext)s template clash with Windows cmd.exe).
     // --merge-output-format mp4 ensures yt-dlp produces .mp4 even when fetching
     // separate video+audio streams from YouTube.
-    $cookiesFlag = '';
-    if (!empty($yt_dlp_browser)) {
-        $spec = $yt_dlp_browser;
-        if (!empty($yt_dlp_browser_profile)) {
-            $spec .= ':' . $yt_dlp_browser_profile;
-        }
-        $cookiesFlag = ' --cookies-from-browser ' . escapeshellarg($spec);
-        if (!empty($yt_dlp_js_runtime)) {
-            $cookiesFlag .= ' --js-runtimes ' . escapeshellarg($yt_dlp_js_runtime);
-        }
-    }
     $cmd = sprintf(
         '%s%s -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" --merge-output-format mp4 --no-playlist -o %s %s 2>&1',
         escapeshellarg($yt_dlp_bin),
-        $cookiesFlag,
+        YtDlp::cookiesFlag(),
         escapeshellarg($mp4Path),
         escapeshellarg($video['youtube_url'])
     );

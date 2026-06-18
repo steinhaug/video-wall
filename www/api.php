@@ -46,17 +46,56 @@ try {
                 respond(400, ['ok' => false, 'error' => 'url is required']);
             }
 
+            // --- Playlist mode -----------------------------------------------
+            if (YtDlp::isPlaylistUrl($url)) {
+                $entries = YtDlp::expandPlaylist($url);
+                if (!$entries) {
+                    respond(400, ['ok' => false, 'error' => 'Playlist is empty or could not be read']);
+                }
+                $added = 0;
+                $skipped = 0;
+                foreach ($entries as $entry) {
+                    $videoUrl = 'https://www.youtube.com/watch?v=' . $entry['video_id'];
+                    $existed  = $repo->getByVideoId($entry['video_id']) !== null;
+                    $id = $repo->add($videoUrl, $entry['video_id'], $category, $entry['title']);
+                    if ($id === null) {
+                        continue;
+                    }
+                    if ($existed) {
+                        $skipped++;
+                    } else {
+                        $added++;
+                    }
+                }
+                respond(200, [
+                    'ok'      => true,
+                    'mode'    => 'playlist',
+                    'added'   => $added,
+                    'skipped' => $skipped,
+                    'total'   => count($entries),
+                ]);
+            }
+
+            // --- Single video mode -------------------------------------------
             $videoId = VideoRepo::extractVideoId($url);
             if ($videoId === null) {
                 respond(400, ['ok' => false, 'error' => 'Could not extract a YouTube video id from url']);
             }
 
+            $existed = $repo->getByVideoId($videoId) !== null;
             $id = $repo->add($url, $videoId, $category);
             if ($id === null) {
                 respond(500, ['ok' => false, 'error' => 'Insert failed']);
             }
             $row = $repo->getById($id);
-            respond(200, ['ok' => true, 'id' => $id, 'video' => $row]);
+            respond(200, [
+                'ok'      => true,
+                'mode'    => 'single',
+                'id'      => $id,
+                'video'   => $row,
+                'added'   => $existed ? 0 : 1,
+                'skipped' => $existed ? 1 : 0,
+            ]);
             break;
 
         case 'list':

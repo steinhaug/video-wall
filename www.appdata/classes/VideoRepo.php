@@ -44,7 +44,12 @@ class VideoRepo
      * Insert a new video. Returns the new id, or the existing id if video_id already present.
      * Returns null if INSERT failed for any other reason.
      */
-    public function add(string $youtubeUrl, string $videoId, string $category): ?int
+    /**
+     * Insert a new video. Returns the new id, or the existing id if video_id already present.
+     * Pass $title to pre-populate (e.g. from playlist expansion) so the worker can skip
+     * the title-fetch step. Returns null only on INSERT failure.
+     */
+    public function add(string $youtubeUrl, string $videoId, string $category, ?string $title = null): ?int
     {
         $category = $category !== '' ? $category : 'Uncategorized';
 
@@ -53,11 +58,19 @@ class VideoRepo
             return (int) $existing['id'];
         }
 
-        $id = $this->db->execute(
-            "INSERT INTO `videos` (`youtube_url`, `video_id`, `category`) VALUES (?, ?, ?)",
-            'sss',
-            [$youtubeUrl, $videoId, $category]
-        );
+        if ($title !== null && $title !== '') {
+            $id = $this->db->execute(
+                "INSERT INTO `videos` (`youtube_url`, `video_id`, `category`, `title`) VALUES (?, ?, ?, ?)",
+                'ssss',
+                [$youtubeUrl, $videoId, $category, $title]
+            );
+        } else {
+            $id = $this->db->execute(
+                "INSERT INTO `videos` (`youtube_url`, `video_id`, `category`) VALUES (?, ?, ?)",
+                'sss',
+                [$youtubeUrl, $videoId, $category]
+            );
+        }
 
         return is_int($id) && $id > 0 ? $id : null;
     }

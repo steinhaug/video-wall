@@ -77,6 +77,20 @@ button.ghost:hover { color: var(--text); border-color: var(--text-dim); backgrou
 button.danger { background: transparent; color: var(--error); border: 1px solid var(--border); }
 button.danger:hover { background: var(--error); color: white; }
 
+.add-msg {
+  font-size: 13px;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.3s;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.add-msg.show { opacity: 1; }
+.add-msg.success { color: var(--success); }
+.add-msg.warn    { color: var(--warning); }
+.add-msg.error   { color: var(--error); }
+.add-form.busy input, .add-form.busy button { opacity: 0.6; pointer-events: none; }
+
 .filters {
   padding: 12px 24px;
   display: flex;
@@ -223,6 +237,7 @@ button.danger:hover { background: var(--error); color: white; }
     <button type="submit">Add</button>
   </form>
   <button class="ghost" id="refreshBtn" title="Refresh">↻</button>
+  <div id="addMsg" class="add-msg"></div>
 </header>
 
 <div class="filters" id="filters"></div>
@@ -394,21 +409,47 @@ async function del(v) {
   else alert('Delete failed: ' + j.error);
 }
 
+function showAddMsg(text, kind) {
+  const el = document.getElementById('addMsg');
+  el.textContent = text;
+  el.className = 'add-msg show ' + (kind || '');
+  clearTimeout(showAddMsg._t);
+  showAddMsg._t = setTimeout(() => el.classList.remove('show'), 5000);
+}
+
 document.getElementById('addForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
+  const isPlaylist = /\/playlist\?(?:.*&)?list=/i.test(f.url.value);
+  f.classList.add('busy');
+  showAddMsg(isPlaylist ? 'Expanding playlist…' : 'Adding…', '');
   const payload = { url: f.url.value, category: f.category.value || 'Uncategorized' };
-  const r = await fetch(API + '?action=add', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const j = await r.json();
-  if (j.ok) {
+  try {
+    const r = await fetch(API + '?action=add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      showAddMsg('Failed: ' + j.error, 'error');
+      return;
+    }
     f.url.value = '';
+    if (j.mode === 'playlist') {
+      const parts = [`Added ${j.added}`];
+      if (j.skipped) parts.push(`skipped ${j.skipped} duplicate${j.skipped === 1 ? '' : 's'}`);
+      showAddMsg(parts.join(', ') + ` (playlist: ${j.total} items)`, j.added ? 'success' : 'warn');
+    } else if (j.skipped) {
+      showAddMsg('Already in queue', 'warn');
+    } else {
+      showAddMsg('Added', 'success');
+    }
     fetchList();
-  } else {
-    alert('Add failed: ' + j.error);
+  } catch (err) {
+    showAddMsg('Request failed: ' + err.message, 'error');
+  } finally {
+    f.classList.remove('busy');
   }
 });
 
