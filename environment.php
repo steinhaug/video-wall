@@ -1,7 +1,9 @@
 <?php
-if(!defined('APPDATA_PATH')) define('APPDATA_PATH', dirname(__FILE__) . '/www.appdata');
-if(!defined('HOME_PATH')) define('HOME_PATH', dirname(__FILE__) . '/www');
-if(!defined('ABS_PATH')) define('ABS_PATH', dirname(__DIR__)));
+if(!defined('ABS_PATH')) define('ABS_PATH', __DIR__);
+if(!defined('APPDATA_PATH')) define('APPDATA_PATH', ABS_PATH . '/www.appdata');
+if(!defined('HOME_PATH')) define('HOME_PATH', ABS_PATH . '/www');
+if(!defined('LOGS_PATH')) define('LOGS_PATH', ABS_PATH . '/logs');
+if(!defined('STORAGE_PATH')) define('STORAGE_PATH', ABS_PATH . '/storage');
 
 require ABS_PATH . '/credentials.php';
 require ABS_PATH . '/vendor/autoload.php';
