@@ -3,4 +3,5 @@ credentials.php
 /vendor/
 composer.lock
 /storage/
-/.claude/
+/.claude/settings.local.json
+/.claude/scheduled_tasks.lock

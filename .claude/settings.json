@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl.exe -s \"http://video-wall.local/api.php?action=list*\")",
+      "Bash(curl.exe -s \"http://video-wall.local/api.php?action=status*\")",
+      "Bash(curl.exe -s \"http://video-wall.local/api.php?action=transcript*\")"
+    ]
+  }
+}
