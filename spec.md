@@ -37,6 +37,7 @@ yt-dlp er allerede tilgjengelig fra terminal
     /classes
       AssemblyAI.php   # upload, create, poll, fetch utterances/vtt
       VideoRepo.php    # tynn repo rundt $mysqli for videos-CRUD
+      YtDlp.php        # cookies/JS-runtime flagg + playlist-ekspansjon
     /migrations
       001_videos.sql   # MySQL-schema for videos-tabellen
   /storage
@@ -45,6 +46,7 @@ yt-dlp er allerede tilgjengelig fra terminal
     /thumbnails        # {video_id}.jpg
     /video             # kun for videoer brukt i "play with subtitles"
   worker.php           # CLI: plukker pending jobber, kjører hele pipeline
+  worker-loop.bat      # dobbeltklikk-launcher for "php worker.php --loop" på Windows
   migrate.php          # CLI: kjører .sql-filer fra www.appdata/migrations/
   credentials.php      # API-nøkkler og credentials (gitignored)
   environment.php      # main PHP include file, initiates $mysqli object
@@ -75,15 +77,19 @@ CREATE TABLE IF NOT EXISTS `videos` (
 **Dedup:** ekstraher `video_id` fra URL ved add. `UNIQUE KEY` på `video_id` + lookup-før-insert i `VideoRepo::add()` → samme video legges aldri til to ganger (samme video_id → returnerer eksisterende `id`). Thumbnail trengs ikke lastes ned separat; YouTube serverer `https://img.youtube.com/vi/{video_id}/hqdefault.jpg`. Last den lokalt KUN hvis du vil ha offline-wall.
 
 ## Worker-pipeline (worker.php)
-Kjøres f.eks. `php worker.php` (én pass) eller `php worker.php --loop` (polling, 5s sleep mellom tomme runder). Plukker én `pending` om gangen sekvensielt.
+Kjøres f.eks. `php worker.php` (én pass) eller `php worker.php --loop` (polling, 5s sleep mellom tomme runder). På Windows: dobbeltklikk `worker-loop.bat` for å åpne et dedikert cmd-vindu i loop-modus. Plukker én `pending` om gangen sekvensielt.
 
 Ved oppstart: `VideoRepo::resetStuckJobs()` setter alle `downloading`/`transcribing` tilbake til `pending` (worker krasj-recovery, idempotent).
 
 ```
 1. SELECT * FROM videos WHERE status='pending' ORDER BY id ASC LIMIT 1
 2. status -> 'downloading'
-   yt-dlp -x --audio-format m4a --no-playlist -o "storage/audio/{video_id}.%(ext)s" {youtube_url}
-   Hent også tittel hvis tom: yt-dlp --print title --skip-download {youtube_url}
+   yt-dlp [auth-flagg] -x --audio-format m4a --no-playlist -o "storage/audio/{video_id}.m4a" {youtube_url}
+   Hent også tittel hvis tom: yt-dlp [auth-flagg] --print title --skip-download {youtube_url}
+   NB: Output-template hardkodes til ".m4a" literal, IKKE "%(ext)s". Windows cmd.exe
+       parser "%(" som mislykket variabel-expansion og lager rare filnavn.
+   [auth-flagg] = " --cookies-from-browser <browser>[:profile] --js-runtimes <runtime>"
+       bygges av YtDlp::cookiesFlag() basert på credentials.php-konfig (kan være tom).
 3. status -> 'transcribing'
    AssemblyAI-klassen håndterer hele API-flyten:
    a. $ai->upload($audioPath)                            -> upload_url
@@ -124,7 +130,9 @@ YouTube IFrame API tillater IKKE egne caption-tracks som overlay, og overlay opp
 `<track>` krever **VTT, ikke SRT** — derfor genererer vi VTT, ikke SRT.
 
 ### api.php (JSON)
-- `POST add`        { url, category } → ekstraher video_id, sjekk om eksisterer (returner eksisterende id) ellers INSERT med status=pending
+- `POST add`        { url, category } → to moduser:
+    - **Single-video URL** (`watch?v=...`, `youtu.be/...`, rå 11-tegns id, eller `watch?v=X&list=Y`): ekstraher video_id, INSERT (eller skip hvis eksisterer). Respons: `{ok, mode:'single', id, video, added:0|1, skipped:0|1}`.
+    - **Playlist URL** (`/playlist?list=PL...`): kjør `YtDlp::expandPlaylist()` (`yt-dlp --flat-playlist -J`, uten cookies fordi playlist-metadata kun trenger offentlig tilgang og Apache uansett ikke kan dekryptere DPAPI), bulk-insert hver entry med pre-fylt tittel. Respons: `{ok, mode:'playlist', added, skipped, total}`.
 - `GET  list`       → alle rader (for wall-render), inkluderer `thumbnail_url`
 - `GET  status`     → lettvekt poll: id, status, title, error_message (for kort som ikke er done)
 - `GET  transcript` { id } → returnerer innholdet av `{video_id}.txt` for modal
@@ -140,8 +148,21 @@ $mysql_port     = '3306';
 $mysql_user     = '...';
 $mysql_password = '...';
 $mysql_database = 'video_wall';
+
+// Absolutt sti til yt-dlp-binary. Apache arver IKKE brukerens PATH på Windows,
+// så vi hardkoder her. Worker.php (CLI) bruker samme variabel for konsistens.
+$yt_dlp_bin = 'C:\\usr\\bin\\yt-dlp.exe';
+
+// Valgfritt: Chrome-cookies for yt-dlp (private/age-gated videoer, anti-bot).
+// Apache kan IKKE dekryptere DPAPI-beskyttede cookies — kun worker (CLI) drar
+// nytte av disse. La være tomme for å kjøre uten autentisering.
+$yt_dlp_browser         = 'chrome';                       // chrome|firefox|edge|brave|opera|chromium|safari
+$yt_dlp_browser_profile = 'G:\\chrome-bank\\haavard';     // valgfri sti til Chrome user-data-dir
+$yt_dlp_js_runtime      = 'node';                         // 'node' eller 'deno', kreves når cookies brukes (n-challenge)
 ```
 Bytte av AssemblyAI-konto = bytt `$assemblyai_api_key` her. (Brukers eget ansvar ift. AssemblyAI sine vilkår om multiple gratiskontoer — utenfor spec.)
+
+**DB-koblingens charset MÅ være `utf8mb4`** (settes i `environment.php`). MySQLs `utf8` er 3-byte legacy og avviser emoji i video-titler.
 
 ## Edge cases å håndtere
 - Ugyldig / privat / aldersbegrenset YouTube-URL → yt-dlp feiler → status=error med melding.
@@ -149,6 +170,9 @@ Bytte av AssemblyAI-konto = bytt `$assemblyai_api_key` her. (Brukers eget ansvar
 - AssemblyAI status "error" i poll → status=error, lagre `response.error`.
 - Worker krasjer midt i jobb → ved restart: rad står i `downloading`/`transcribing`. Enkleste reset: ved oppstart sett alle ikke-`done`/ikke-`error` tilbake til `pending` (idempotent siden upload på nytt er greit), eller la worker resume på `assemblyai_id` hvis satt. Start enkelt: reset til pending.
 - Store filer / lang transcribe-tid → derfor er dette en worker, ikke en web-request.
+- Privat playlist → `YtDlp::expandPlaylist()` får "playlist does not exist" / 403 fra YouTube. Brukeren må sette playlisten på public (DPAPI-grensen hindrer Apache-cookies-fallback).
+- Emoji i titler → krever `utf8mb4` på både schema og connection. Schema gjør det allerede; sjekk at `environment.php` har `$mysqli->set_charset("utf8mb4")`.
+- yt-dlp + cookies på YouTube → krever JavaScript-runtime for å løse "n challenge". Sett `$yt_dlp_js_runtime = 'node'` (eller `'deno'`) i credentials.
 
 
 ## Mysqli class documentation
@@ -165,12 +189,13 @@ Integrasjon mot AssemblyAI er allerede laget og aktivert i prosjektet. Dokumenta
 
 ## Hva Claude Code skal bygge (rekkefølge)
 1. `www.appdata/migrations/001_videos.sql` + `migrate.php` (kjøres én gang for å opprette tabellen).
-2. `www.appdata/classes/VideoRepo.php` (tynn repo rundt `$mysqli` for videos-CRUD).
-3. `worker.php` (full pipeline, sekvensiell, god feilhåndtering + logging til stdout).
-4. `www/api.php` (add/list/status/delete/transcript).
-5. `www/index.php` (wall + modal + kategorifilter).
-6. `www/media.php` (serverer `/storage` fra utenfor docroot, med HTTP Range for video-seeking).
-7. `www/player.php` (on-demand videonedlasting + HTML5 player med track).
+2. `www.appdata/classes/VideoRepo.php` (tynn repo rundt `$mysqli` for videos-CRUD; støtter pre-fylt tittel fra playlist-ekspansjon).
+3. `www.appdata/classes/YtDlp.php` (cookies/JS-runtime flagg + `isPlaylistUrl()` + `expandPlaylist()` via `yt-dlp --flat-playlist -J`).
+4. `worker.php` (full pipeline, sekvensiell, god feilhåndtering + logging til stdout) + `worker-loop.bat` (Windows-launcher).
+5. `www/api.php` (add/list/status/delete/transcript — `add` håndterer både single-video og playlist-URL).
+6. `www/index.php` (wall + modal + kategorifilter + bulk-add-toast).
+7. `www/media.php` (serverer `/storage` fra utenfor docroot, med HTTP Range for video-seeking).
+8. `www/player.php` (on-demand videonedlasting + HTML5 player med track).
 
-MVP = punkt 1–7 (wall fungerer, "play with subtitles" kan komme sist).
+MVP = punkt 1–8 (wall fungerer, "play with subtitles" kan komme sist).
 
