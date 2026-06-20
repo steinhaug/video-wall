@@ -45,8 +45,11 @@ yt-dlp er allerede tilgjengelig fra terminal
     /transcripts       # {video_id}.txt + {video_id}.vtt
     /thumbnails        # {video_id}.jpg
     /video             # kun for videoer brukt i "play with subtitles"
+    /playlist-audio    # frittstående audio-dump: <list-id>/NN - tittel.m4a (IKKE slettet)
   worker.php           # CLI: plukker pending jobber, kjører hele pipeline
   worker-loop.bat      # dobbeltklikk-launcher for "php worker.php --loop" på Windows
+  playlist-audio-download.php  # CLI: laster ned audio for hel spilleliste (frittstående, se egen seksjon)
+  audio-download.bat   # dobbeltklikk-launcher som spør etter spilleliste-URL og kjører scriptet
   migrate.php          # CLI: kjører .sql-filer fra www.appdata/migrations/
   credentials.php      # API-nøkkler og credentials (gitignored)
   environment.php      # main PHP include file, initiates $mysqli object
@@ -104,6 +107,26 @@ Ved oppstart: `VideoRepo::resetStuckJobs()` setter alle `downloading`/`transcrib
 6. status -> 'done'
 Ved Throwable i steg 2–5: status -> 'error', error_message = exception-melding. Audio ryddes.
 ```
+
+## Frittstående audio-nedlasting (playlist-audio-download.php)
+Egen flyt, helt separat fra video-wall: **ingen DB-rader, ingen AssemblyAI, ingen transcribe, ingen opprydding**. Brukes når man bare trenger lydfilene fra en hel spilleliste til andre formål. Deler kun `YtDlp`-klassen og yt-dlp/cookies-mønsteret med worker.php.
+
+Kjøres `php playlist-audio-download.php "<playlist-url>"`, eller dobbeltklikk `audio-download.bat` som spør etter URL i et prompt og re-spør for neste spilleliste etterpå (blank linje = avslutt). NB: lyd-flyten har ingen jobbkø i DB, så det finnes **ingen `--loop`-modus** — launcheren mater URL inn manuelt i stedet for å polle.
+
+```
+1. Valider arg + YtDlp::isPlaylistUrl() (advarer, men prøver uansett hvis ikke /playlist?list=).
+2. Ekstraher list=-id fra URL -> mappenavn. Output: storage/playlist-audio/<list-id>/.
+3. YtDlp::expandPlaylist() -> liste {video_id, title}.
+4. Per video (1-basert posisjon NN, nullpadda):
+   - filnavn: "NN - <sanert tittel>.m4a"
+   - HOPP OVER hvis fila finnes (re-kjør er trygt / resumbar).
+   - yt-dlp [auth-flagg] -x --audio-format m4a --no-playlist -o "<dir>/NN - tittel.m4a" watch?v=<id>
+   - per-video try/catch: én feilende video dreper ikke batchen, logges og fortsetter.
+5. Sluttlinje: downloaded / skipped / failed / total.
+```
+`sanitize_filename()` stripper Windows-reserverte tegn `<>:"/\|?*` **pluss `!` og `%`** — fordi PHPs `escapeshellarg()` på Windows bytter `!`/`%` med mellomrom (nøytraliserer cmd.exe delayed-expansion / `%VAR%`). Uten strippingen havner fila på et annet navn enn stien vi bygde, og `is_file()`-sjekken rapporterer falsk feil. Samme familie som `%(ext)s`-fellen i worker-pipelinen.
+
+I motsetning til worker bruker denne `cookiesFlag()` reelt: CLI kan dekryptere DPAPI-cookies (Apache kan ikke). Mislykkede videoer er typisk fjernet/privat, eller transient throttle/403/connection-drop — re-kjør plukker dem opp uten å laste ned de eksisterende på nytt.
 
 ## Frontend
 
